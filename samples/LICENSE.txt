@@ -1,0 +1,29 @@
+CharruaSoft DICOM Samples
+=========================
+
+SYNTHETIC DATA - NOT FOR CLINICAL USE.
+These files contain no patient data. Images are computed from mathematical
+phantoms. They must not be used for diagnosis or treatment.
+
+Synthetic samples (all files except ECG-01)
+-------------------------------------------
+CC0 1.0 Universal - Public Domain Dedication.
+https://creativecommons.org/publicdomain/zero/1.0/
+You may copy, modify and redistribute them, for any purpose, without asking
+permission. Attribution to CharruaSoft (https://www.charruasoft.com) is
+appreciated but not required.
+
+ECG-01 (ecg/ECG-01.dcm)
+-----------------------
+Derived from the PTB-XL database, record 10011, distributed by PhysioNet under
+the Creative Commons Attribution 4.0 International license (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+Source: Wagner P, Strodthoff N, Bousseljot RD, Samek W, Schaeffter T.
+PTB-XL, a large publicly available electrocardiography dataset (version 1.0.3).
+PhysioNet. https://doi.org/10.13026/kfzx-aw45
+Changes: converted from WFDB to DICOM 12-Lead ECG Waveform; identification,
+institution and UIDs replaced with sample values. The signal is unchanged.
+
+No warranty
+-----------
+The files are provided "as is", without warranty of any kind.
