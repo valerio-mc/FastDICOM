@@ -843,22 +843,6 @@ fn viewport(s: &State, pane: usize) -> El {
                     foreground(),
                 )),
         );
-        if pending {
-            canvas = canvas.child(
-                label(
-                    format!("Loading slice {:03}…", p.index + 1),
-                    11.0,
-                    500.0,
-                    accent(),
-                )
-                .key("slice-pending")
-                .pin(None, Some(100.0), Some(24.0), None)
-                .padding(8.0)
-                .radius(2.0)
-                .fill(ink("#101318").alpha(0.9))
-                .role("status"),
-            );
-        }
     } else if let Some(error) = &p.error {
         canvas = canvas.child(
             col()
@@ -892,16 +876,11 @@ fn viewport(s: &State, pane: usize) -> El {
                 .gap(15.0)
                 .fill(ink("#050607"))
                 .role("status")
-                .child(label(
-                    if s.scan.is_pending() {
-                        "Indexing your folder…".to_owned()
-                    } else {
-                        format!("Loading slice {:03}…", p.index + 1)
-                    },
-                    15.0,
-                    500.0,
-                    foreground(),
-                )),
+                .children(
+                    s.scan
+                        .is_pending()
+                        .then(|| label("Indexing your folder…", 15.0, 500.0, foreground())),
+                ),
         );
     } else if s.split {
         canvas = canvas.child(

@@ -19,4 +19,6 @@ cp "$ROOT/assets/Info.plist" "$APP/Contents/Info.plist"
 # This touches only the generated app, never the source assets or study files.
 xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
+# Refresh the bundle timestamp so Finder notices regenerated resources.
+touch "$APP"
 print "Built $APP"

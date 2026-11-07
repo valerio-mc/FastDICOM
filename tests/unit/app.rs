@@ -420,7 +420,12 @@ fn pending_slice_keeps_the_displayed_image_visible() {
         rune::Runtime::new(state, ui::view, (1000.0, 680.0), rune::Env::new(true, 1.0));
     runtime.frame(0.0);
     assert!(runtime.find("image").is_some());
-    assert!(runtime.find("slice-pending").is_some());
+    assert!(!runtime.elements().iter().any(|element| {
+        element
+            .text
+            .as_deref()
+            .is_some_and(|text| text.starts_with("Loading slice"))
+    }));
     assert!(runtime.find("loading-progress").is_some());
     assert!(runtime.find("image-loading").is_none());
     assert_eq!(runtime.state.displayed_index, 0);
