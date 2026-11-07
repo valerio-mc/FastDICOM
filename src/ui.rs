@@ -183,7 +183,7 @@ fn header(s: &State) -> El {
             .label("Hide patient details")
             .checked(s.privacy)
             .help(if s.privacy { "Show patient details · ⇧⌘P" } else { "Hide patient details · ⇧⌘P" })
-            .description("Hides patient names, study and series descriptions, and error details. Does not remove text burned into images.")
+            .description("Hides patient names, birth dates, study titles and dates, series descriptions, modalities, and error details. Does not remove text burned into images.")
             .shortcut_hint("⇧⌘P")
             .on_press_tx(|s: &mut State, tx| { s.toggle_privacy(); tx.instant(); }))
 }
@@ -368,9 +368,76 @@ fn series_preview(s: &State, id: &str, modality: &str, selected: bool) -> El {
     }
 }
 
+fn image_count(count: usize) -> String {
+    format!("{count} {}", if count == 1 { "image" } else { "images" })
+}
+
+fn study_header(s: &State, start: usize, end: usize, number: usize) -> El {
+    let study = &s.series[start..end];
+    let title = if s.privacy {
+        None
+    } else {
+        study
+            .iter()
+            .find(|series| !series.study_description.is_empty())
+    }
+    .map(|series| series.study_description.clone())
+    .unwrap_or_else(|| format!("Study {number:02}"));
+    let date = if s.privacy {
+        "Date hidden".to_owned()
+    } else {
+        study
+            .iter()
+            .find_map(|series| series.study_date.as_ref())
+            .map_or_else(|| "Date unavailable".into(), ToString::to_string)
+    };
+    let mut modalities = Vec::new();
+    if !s.privacy {
+        for series in study {
+            if !series.modality.is_empty() && !modalities.contains(&series.modality.as_str()) {
+                modalities.push(series.modality.as_str());
+            }
+        }
+    }
+    let modalities = if modalities.is_empty() {
+        "DICOM".into()
+    } else {
+        modalities.join(" / ")
+    };
+    col()
+        .key(format!("study-{}", study[0].study_uid))
+        .w_full()
+        .h(60.0)
+        .mt(if number == 1 { 0.0 } else { 8.0 })
+        .px(8.0)
+        .py(8.0)
+        .gap(5.0)
+        .child(label(title, 12.0, 600.0, foreground()).w_full().truncate())
+        .child(
+            label(format!("{date} · {modalities}"), 10.0, 450.0, muted())
+                .w_full()
+                .truncate(),
+        )
+        .child(
+            el().pin(Some(8.0), None, Some(8.0), Some(0.0))
+                .h(1.0)
+                .fill(Color::WHITE.alpha(0.10))
+                .a11y_hidden(),
+        )
+}
+
 fn sidebar(s: &State) -> El {
     let mut list = col().key("series-list").w_full().gap(8.0).padding(8.0);
+    let mut study_number = 0;
     for (index, series) in s.series.iter().enumerate() {
+        if index == 0 || s.series[index - 1].study_uid != series.study_uid {
+            study_number += 1;
+            let end = s.series[index..]
+                .iter()
+                .position(|next| next.study_uid != series.study_uid)
+                .map_or(s.series.len(), |offset| index + offset);
+            list = list.child(study_header(s, index, end, study_number));
+        }
         let selected = s.selected == Some(index) && !s.demo;
         let hovered = s.hovered_series.as_deref() == Some(series.id.as_str());
         let raised = selected || hovered;
@@ -400,9 +467,9 @@ fn sidebar(s: &State) -> El {
             .focus_ring(1.5, 1.0, accent())
             .role("button")
             .label(format!(
-                "{name}, {}, {} images",
+                "{name}, {}, {}",
                 modality,
-                series.files.len()
+                image_count(series.files.len())
             ))
             .checked(selected)
             .focusable(true)
@@ -437,7 +504,7 @@ fn sidebar(s: &State) -> El {
                     .gap(6.0)
                     .child(label(name, 12.0, 600.0, foreground()).w_full().truncate())
                     .child(label(
-                        format!("{} images", series.files.len()),
+                        format!("{modality} · {}", image_count(series.files.len())),
                         10.0,
                         450.0,
                         muted(),
@@ -562,7 +629,10 @@ fn patient_info(s: &State) -> Option<El> {
         .or_else(|| s.panes.iter().find_map(|p| p.selected))
         .filter(|_| !s.privacy)
         .and_then(|i| s.series.get(i))?;
-    if series.patient_name.is_empty() && series.study_description.is_empty() {
+    if series.patient_name.is_empty()
+        && series.patient_birth_date.is_none()
+        && series.study_description.is_empty()
+    {
         return None;
     }
     let panel = col()
@@ -573,14 +643,17 @@ fn patient_info(s: &State) -> Option<El> {
         .gap(6.0)
         .radius(12.0)
         .on_hover_change(|s: &mut State, hovering, _| s.hovered_patient_info = hovering)
-        .children(
-            (!series.patient_name.is_empty())
-                .then(|| floating_label(&series.patient_name, 12.0, 600.0, foreground())),
-        )
-        .children(
-            (!series.study_description.is_empty())
-                .then(|| floating_label(&series.study_description, 11.0, 450.0, foreground())),
-        );
+        .children((!series.patient_name.is_empty()).then(|| {
+            floating_label(&series.patient_name, 12.0, 600.0, foreground()).key("patient-name")
+        }))
+        .children(series.patient_birth_date.as_ref().map(|date| {
+            floating_label(format!("Born {date}"), 11.0, 450.0, foreground())
+                .key("patient-birth-date")
+        }))
+        .children((!series.study_description.is_empty()).then(|| {
+            floating_label(&series.study_description, 11.0, 450.0, foreground())
+                .key("patient-study")
+        }));
     Some(if s.hovered_patient_info {
         glass::surface(panel, glass::PATIENT, 0.025)
     } else {

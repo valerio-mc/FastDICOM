@@ -17,10 +17,14 @@ fn contrast_study(supplied: bool) -> State {
     let mut s = State::default();
     s.series.push(dicom::Series {
         id: "study/series".into(),
+        study_uid: "study".into(),
+        study_date: None,
+        series_number: None,
         description: "".into(),
         modality: "MR".into(),
         study_description: "".into(),
         patient_name: "".into(),
+        patient_birth_date: None,
         patient_id: "".into(),
         patient_issuer: "".into(),
         files: (0..10)

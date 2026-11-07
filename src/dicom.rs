@@ -23,20 +23,70 @@ const MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const MAX_TOKENS: usize = 100_000;
 const MAX_DEPTH: usize = 32;
 
+/// A complete, calendar-valid DICOM DA value (YYYYMMDD), ordered chronologically.
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Date {
+    year: u16,
+    month: u8,
+    day: u8,
+}
+
+impl Date {
+    pub fn parse(raw: &str) -> Option<Self> {
+        if raw.len() != 8 || !raw.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let year = raw[..4].parse::<u16>().ok()?;
+        let month = raw[4..6].parse::<u8>().ok()?;
+        let day = raw[6..].parse::<u8>().ok()?;
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        let days = match month {
+            2 if leap => 29,
+            2 => 28,
+            4 | 6 | 9 | 11 => 30,
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            _ => return None,
+        };
+        (year != 0 && day != 0 && day <= days).then_some(Self { year, month, day })
+    }
+}
+
+impl std::fmt::Display for Date {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let month = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ][usize::from(self.month - 1)];
+        write!(f, "{:02} {month} {:04}", self.day, self.year)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Series {
     pub id: String,
+    pub study_uid: String,
+    /// The agreed valid date across accepted images in this study. Missing/invalid
+    /// values are ignored; conflicting valid dates make the entire study unknown.
+    pub study_date: Option<Date>,
+    /// Lowest known series number if instances disagree; None sorts last.
+    pub series_number: Option<i32>,
     pub description: String,
     pub modality: String,
     pub study_description: String,
     pub patient_name: String,
     pub patient_id: String,
     pub patient_issuer: String,
+    pub patient_birth_date: Option<Date>,
     pub files: Vec<PathBuf>,
 }
 
 impl Series {
     pub fn same_patient(&self, other: &Self) -> bool {
+        if self.patient_birth_date.is_some()
+            && other.patient_birth_date.is_some()
+            && self.patient_birth_date != other.patient_birth_date
+        {
+            return false;
+        }
         if !self.patient_id.is_empty() && !other.patient_id.is_empty() {
             self.patient_id == other.patient_id
                 && self.patient_issuer == other.patient_issuer
@@ -44,8 +94,7 @@ impl Series {
                     || other.patient_name.is_empty()
                     || self.patient_name == other.patient_name)
         } else {
-            self.id.split('/').next() == other.id.split('/').next()
-                && self.patient_name == other.patient_name
+            self.study_uid == other.study_uid && self.patient_name == other.patient_name
         }
     }
 }
@@ -101,6 +150,8 @@ pub fn scan_folder(path: &Path) -> Result<ScanResult, String> {
     }
     let mut pending = vec![root.to_path_buf()];
     let mut groups: BTreeMap<(String, String), (Series, Vec<Instance>)> = BTreeMap::new();
+    // One agreed known date per study; disagreement is sticky, not traversal-dependent.
+    let mut study_dates: BTreeMap<String, (Option<Date>, bool)> = BTreeMap::new();
     let mut skipped = 0;
     let mut visited = 0;
     while let Some(folder) = pending.pop() {
@@ -139,6 +190,12 @@ pub fn scan_folder(path: &Path) -> Result<ScanResult, String> {
                 skipped += 1;
                 continue;
             }
+            let study_date = Date::parse(&text(&obj, "StudyDate"));
+            let birth_date = Date::parse(&text(&obj, "PatientBirthDate"));
+            let series_number = obj
+                .element_by_name("SeriesNumber")
+                .ok()
+                .and_then(|e| e.to_int::<i32>().ok());
             let instance = Instance {
                 path: file_path,
                 number: obj
@@ -155,12 +212,16 @@ pub fn scan_folder(path: &Path) -> Result<ScanResult, String> {
                         (
                             Series {
                                 id: format!("{study}/{uid}"),
+                                study_uid: study.clone(),
+                                study_date: None,
+                                series_number,
                                 description: text(&obj, "SeriesDescription"),
                                 modality: text(&obj, "Modality"),
                                 study_description: text(&obj, "StudyDescription"),
                                 patient_name: text(&obj, "PatientName"),
                                 patient_id: text(&obj, "PatientID"),
                                 patient_issuer: text(&obj, "IssuerOfPatientID"),
+                                patient_birth_date: birth_date.clone(),
                                 files: Vec::new(),
                             },
                             Vec::new(),
@@ -169,21 +230,55 @@ pub fn scan_folder(path: &Path) -> Result<ScanResult, String> {
             if series.patient_id != text(&obj, "PatientID")
                 || series.patient_issuer != text(&obj, "IssuerOfPatientID")
                 || series.patient_name != text(&obj, "PatientName")
+                || (series.patient_birth_date.is_some()
+                    && birth_date.is_some()
+                    && series.patient_birth_date != birth_date)
             {
                 skipped += 1;
                 continue;
             }
+            if series.patient_birth_date.is_none() {
+                series.patient_birth_date = birth_date;
+            }
+            // Inconsistent SeriesNumber is not an identity failure. Use the lowest
+            // known number deterministically; absent/invalid numbers sort last.
+            if let Some(number) = series_number {
+                series.series_number = Some(series.series_number.map_or(number, |n| n.min(number)));
+            }
+            let (known_date, conflict) = study_dates.entry(study).or_default();
+            if let Some(date) = study_date {
+                if known_date.as_ref().is_some_and(|known| *known != date) {
+                    *conflict = true;
+                } else {
+                    *known_date = Some(date);
+                }
+            }
             instances.push(instance);
         }
     }
-    let series = groups
+    let mut series: Vec<Series> = groups
         .into_values()
         .map(|(mut series, mut instances)| {
             sort_instances(&mut instances);
             series.files = instances.into_iter().map(|i| i.path).collect();
+            if let Some((date, false)) = study_dates.get(&series.study_uid) {
+                series.study_date = date.clone();
+            }
             series
         })
         .collect();
+    series.sort_by(|a, b| {
+        b.study_date
+            .cmp(&a.study_date)
+            .then_with(|| a.study_uid.cmp(&b.study_uid))
+            .then_with(|| match (a.series_number, b.series_number) {
+                (Some(a), Some(b)) => a.cmp(&b),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| a.id.cmp(&b.id))
+    });
     Ok(ScanResult { series, skipped })
 }
 

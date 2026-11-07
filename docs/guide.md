@@ -84,11 +84,18 @@ an anatomically accurate teaching image. It is explicitly marked in the viewer.
 - Series previews use the middle image of each series and load progressively in
   the background; image navigation does not wait for the preview batch.
 
+The sidebar groups series by StudyInstanceUID, with the encoded study date and
+modality above each group. Studies sort newest first (unknown dates last); series
+use SeriesNumber where available. Missing or conflicting study dates are shown as
+unavailable. Patient details show the encoded birth date beneath the name when
+available; dates are not inferred from filenames, ages, or filesystem timestamps.
+
 The bottom-center icon dock provides Window/level, Pan, Zoom, Fit, Reset, Invert,
 and clockwise rotation. Hover for action names and shortcuts. Glass surfaces share
 Rune FX's screen-space lens material: backdrop refraction, frosted transmission,
 rim lighting, and contact shadows; chromatic dispersion is disabled to avoid pink
-fringes. All surfaces use the dock's green tint. A compact unified title strip combines native macOS window
+fringes. Surfaces use a subtle neutral tint, with green reserved for interaction
+accents. This is app-rendered glass, not Apple's native Liquid Glass. A compact unified title strip combines native macOS window
 buttons with the series toggle (⌘B), Open folder, app identity, and Privacy mode.
 Series previews float without an enclosing sidebar panel. Individual
 selected/hovered rows use the dock's in-app glass and a
@@ -98,7 +105,7 @@ continuous workspace backing are fully opaque. Glass effects sample app content,
 never the desktop; the image canvas remains fully opaque too.
 Skipped-file counts are available in the Open folder tooltip, not a footer strip.
 
-The **eye button** in the title strip (⇧⌘P) hides patient names, study/series descriptions,
+The **eye button** in the title strip (⇧⌘P) hides patient names, birth dates, study dates, study/series descriptions,
 other imported text, and detailed error messages from the interface and its
 accessibility labels. An open eye means details are visible; a slashed eye means
 they are hidden. Click again to restore the information. It is session-local

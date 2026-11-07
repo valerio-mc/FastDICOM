@@ -29,15 +29,15 @@ fn is_glass(mark: u32) -> bool {
 
 fn lens(tint: f32) -> LensParams {
     LensParams {
-        bevel: 12.0,
-        depth: 18.0,
+        bevel: 3.5,
+        depth: 5.0,
         dispersion: 0.0,
-        magnification: 1.03,
-        frost: 0.18,
-        shadow: 0.3,
-        rim: 1.4,
+        magnification: 1.005,
+        frost: 0.3,
+        shadow: 0.15,
+        rim: 0.4,
         light_angle: -2.09,
-        tint: rgb(0xD9FF67),
+        tint: rgb(0xEDF1F5),
         tint_amount: tint.clamp(0.0, 1.0),
         ..Default::default()
     }

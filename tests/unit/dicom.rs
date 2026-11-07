@@ -1,5 +1,101 @@
 use super::*;
 
+#[test]
+fn dicom_dates_require_complete_calendar_valid_values_and_display_unambiguously() {
+    for valid in ["00010101", "20000229", "20240229", "20261107", "99991231"] {
+        assert!(Date::parse(valid).is_some(), "{valid}");
+    }
+    for invalid in [
+        "",
+        "2026",
+        "202611",
+        "202611070",
+        "2026.11.07",
+        "20261107 ",
+        " 20261107",
+        "20261107\\20261108",
+        "00000101",
+        "19000229",
+        "21000229",
+        "20260229",
+        "20260431",
+        "20260001",
+        "20261301",
+        "20261100",
+        "20261132",
+        "２０２６１１０７",
+    ] {
+        assert_eq!(Date::parse(invalid), None, "{invalid}");
+    }
+    assert_eq!(Date::parse("20261107").unwrap().to_string(), "07 Nov 2026");
+    assert!(Date::parse("20260101") > Date::parse("20251231"));
+    assert!(Date::parse("20261101") > Date::parse("20261031"));
+    assert!(Date::parse("20261108") > Date::parse("20261107"));
+}
+
+fn patient_series() -> Series {
+    Series {
+        id: "legacy-looking-id/series".into(),
+        study_uid: "1.2.3".into(),
+        study_date: None,
+        series_number: None,
+        description: String::new(),
+        modality: "CT".into(),
+        study_description: String::new(),
+        patient_name: "DOE^JOHN".into(),
+        patient_id: "patient".into(),
+        patient_issuer: "issuer".into(),
+        patient_birth_date: Date::parse("19700101"),
+        files: Vec::new(),
+    }
+}
+
+#[test]
+fn patient_identity_keeps_id_issuer_name_guards_and_checks_known_birth_dates() {
+    let a = patient_series();
+    let mut b = a.clone();
+    b.study_uid = "different-study".into();
+    assert!(a.same_patient(&b));
+    b.patient_birth_date = None;
+    assert!(a.same_patient(&b));
+    b.patient_birth_date = Date::parse("19700102");
+    assert!(!a.same_patient(&b));
+    for field in [0, 1, 2] {
+        let mut b = a.clone();
+        match field {
+            0 => b.patient_id = "other".into(),
+            1 => b.patient_issuer = "other".into(),
+            _ => b.patient_name = "OTHER^PERSON".into(),
+        }
+        assert!(!a.same_patient(&b));
+    }
+    let mut b = a.clone();
+    b.patient_id.clear();
+    b.id = "unrelated-id".into();
+    assert!(a.same_patient(&b), "missing IDs use explicit study UID");
+    b.study_uid = "different-study".into();
+    assert!(!a.same_patient(&b));
+}
+
+struct TestFolder(PathBuf);
+
+impl Drop for TestFolder {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn test_folder() -> TestFolder {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let folder =
+        std::env::temp_dir().join(format!("fastdicom-test-{}-{nonce}", std::process::id()));
+    fs::create_dir(&folder).unwrap();
+    TestFolder(folder)
+}
+
 /// Standard DICOM LINEAR window, including the width=1 threshold case.
 /// `invert` is an additional user toggle, XORed with MONOCHROME1 polarity.
 /// Independent reference for valid frames and windows.
@@ -202,6 +298,145 @@ fn generated_dicom(study: &str, series: &str, instance: u32, x: f64) -> Vec<u8> 
     generated_dicom_with_syntax(study, series, instance, x, "1.2.840.10008.1.2.1")
 }
 
+fn metadata_dicom(study: &str, series: &str, date: &str, number: &str, birth: &str) -> Vec<u8> {
+    let mut bytes = generated_dicom(study, series, 1, 0.0);
+    for (group, tag, before_group, before, vr, value) in [
+        (8u16, 0x20u16, 8u16, 0x60u16, b"DA", date),
+        (0x10, 0x30, 0x20, 0x0d, b"DA", birth),
+        (0x20, 0x11, 0x20, 0x13, b"IS", number),
+    ] {
+        if value.is_empty() {
+            continue;
+        }
+        let prefix = [
+            before_group as u8,
+            (before_group >> 8) as u8,
+            before as u8,
+            (before >> 8) as u8,
+        ];
+        let offset = bytes.windows(4).position(|v| v == prefix).unwrap();
+        let mut element = Vec::new();
+        element.extend_from_slice(&group.to_le_bytes());
+        element.extend_from_slice(&tag.to_le_bytes());
+        element.extend_from_slice(vr);
+        let padded_len = value.len() + value.len() % 2;
+        element.extend_from_slice(&(padded_len as u16).to_le_bytes());
+        element.extend_from_slice(value.as_bytes());
+        if value.len() % 2 == 1 {
+            element.push(b' ');
+        }
+        bytes.splice(offset..offset, element);
+    }
+    bytes
+}
+
+#[test]
+fn studies_sort_newest_first_contiguously_with_numeric_series_and_unknown_dates_last() {
+    let folder = test_folder();
+    for (file, study, series, date, number) in [
+        ("a", "1.2.9", "1.2.1", "20261107", "10"),
+        ("b", "1.2.9", "1.2.2", "", "2"),
+        ("c", "1.2.9", "1.2.3", "20261107", "invalid"),
+        ("d", "1.2.8", "1.2.1", "20261107", "1"),
+        ("e", "1.2.1", "1.2.1", "20250101", "1"),
+        ("f", "1.2.2", "1.2.1", "20260230", "1"),
+        ("g", "1.2.3", "1.2.1", "", "1"),
+    ] {
+        fs::write(
+            folder.0.join(file),
+            metadata_dicom(study, series, date, number, "19700101"),
+        )
+        .unwrap();
+    }
+    let scan = scan_folder(&folder.0).unwrap();
+    assert_eq!(
+        scan.skipped, 0,
+        "invalid optional metadata does not reject images"
+    );
+    assert_eq!(
+        scan.series
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "1.2.8/1.2.1",
+            "1.2.9/1.2.2",
+            "1.2.9/1.2.1",
+            "1.2.9/1.2.3",
+            "1.2.1/1.2.1",
+            "1.2.2/1.2.1",
+            "1.2.3/1.2.1"
+        ]
+    );
+    for series in &scan.series[1..4] {
+        assert_eq!(series.study_date, Date::parse("20261107"));
+        assert_eq!(series.study_uid, "1.2.9");
+        assert_eq!(series.patient_birth_date, Date::parse("19700101"));
+    }
+    assert_eq!(scan.series[1].series_number, Some(2));
+    assert_eq!(scan.series[2].series_number, Some(10));
+    assert_eq!(scan.series[3].series_number, None);
+}
+
+#[test]
+fn inconsistent_study_dates_are_unknown_regardless_of_instance_order() {
+    let folder = test_folder();
+    let dates = ["20261107", "20250101", "", "invalid", "20261107"];
+    for reverse in [false, true] {
+        for (i, date) in dates.iter().enumerate() {
+            let date = if reverse {
+                dates[dates.len() - 1 - i]
+            } else {
+                date
+            };
+            fs::write(
+                folder.0.join(format!("{i}.dcm")),
+                metadata_dicom(
+                    "1.2.3",
+                    if i % 2 == 0 { "1.2.4" } else { "1.2.5" },
+                    date,
+                    "1",
+                    "",
+                ),
+            )
+            .unwrap();
+        }
+        let scan = scan_folder(&folder.0).unwrap();
+        assert_eq!(scan.skipped, 0);
+        assert_eq!(scan.series.len(), 2);
+        assert!(scan.series.iter().all(|s| s.study_date.is_none()));
+        assert_eq!(scan.series.iter().map(|s| s.files.len()).sum::<usize>(), 5);
+    }
+}
+
+#[test]
+fn missing_birth_dates_cannot_bridge_conflicting_known_birth_dates_within_series() {
+    let folder = test_folder();
+    for (file, birth) in [
+        ("a", ""),
+        ("b", "19700101"),
+        ("c", "19700102"),
+        ("d", "invalid"),
+    ] {
+        fs::write(
+            folder.0.join(file),
+            metadata_dicom("1.2.3", "1.2.4", "", "1", birth),
+        )
+        .unwrap();
+    }
+    let scan = scan_folder(&folder.0).unwrap();
+    assert_eq!(scan.skipped, 1);
+    assert_eq!(scan.series.len(), 1);
+    assert_eq!(scan.series[0].files.len(), 3);
+    let known = scan.series[0].patient_birth_date.as_ref().unwrap();
+    for file in &scan.series[0].files {
+        let obj = read_object(file, true).unwrap();
+        if let Some(date) = Date::parse(&text(&obj, "PatientBirthDate")) {
+            assert_eq!(&date, known);
+        }
+    }
+}
+
 fn generated_dicom_with_syntax(
     study: &str,
     series: &str,
@@ -350,20 +585,7 @@ fn rle_packets_are_bounded_before_expansion_and_preserve_sample_bytes() {
 
 #[test]
 fn generated_signed_dicom_decodes_rescale_once_and_indexes_by_study_and_series() {
-    struct TestFolder(PathBuf);
-    impl Drop for TestFolder {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let folder =
-        std::env::temp_dir().join(format!("fastdicom-test-{}-{nonce}", std::process::id()));
-    fs::create_dir(&folder).unwrap();
-    let folder = TestFolder(folder);
+    let folder = test_folder();
     fs::create_dir(folder.0.join("nested")).unwrap();
     let first = folder.0.join("first.dcm");
     let second = folder.0.join("nested/second.dcm");

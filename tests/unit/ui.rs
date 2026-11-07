@@ -16,6 +16,10 @@ fn imported_study() -> State {
     State {
         series: vec![crate::dicom::Series {
             id: "study/series".into(),
+            study_uid: "study".into(),
+            study_date: None,
+            series_number: None,
+            patient_birth_date: None,
             description: "PRIVATE-SERIES".into(),
             modality: "PRIVATE-MODALITY".into(),
             study_description: "PRIVATE-STUDY".into(),
@@ -77,13 +81,18 @@ fn startup_prompt_is_centered_without_empty_sidebar_or_image_tools() {
 
 #[test]
 fn privacy_toggle_removes_imported_text_and_accessibility_labels_then_restores_them() {
-    let mut rt = runtime(imported_study(), (1000.0, 680.0));
+    let mut state = imported_study();
+    state.series[0].study_date = crate::dicom::Date::parse("20261107");
+    state.series[0].patient_birth_date = crate::dicom::Date::parse("19700101");
+    let mut rt = runtime(state, (1000.0, 680.0));
     rt.frame(0.0);
     for token in [
         "PRIVATE-PATIENT",
         "PRIVATE-STUDY",
         "PRIVATE-SERIES",
         "PRIVATE-MODALITY",
+        "07 Nov 2026",
+        "Born 01 Jan 1970",
     ] {
         assert!(exposed_text(&rt).contains(token));
     }
@@ -92,6 +101,10 @@ fn privacy_toggle_removes_imported_text_and_accessibility_labels_then_restores_t
         click(&mut rt, "privacy-toggle");
         assert_eq!(rt.state.privacy, hidden);
         assert_eq!(exposed_text(&rt).contains("PRIVATE-"), !hidden);
+        assert_eq!(exposed_text(&rt).contains("07 Nov 2026"), !hidden);
+        assert_eq!(exposed_text(&rt).contains("01 Jan 1970"), !hidden);
+        assert_eq!(exposed_text(&rt).contains("Date hidden"), hidden);
+        assert_eq!(exposed_text(&rt).contains("Study 01"), hidden);
         assert!(Arc::ptr_eq(rt.state.frame.as_ref().unwrap(), &frame));
     }
 }
@@ -442,12 +455,14 @@ fn patient_matching_is_conservative_for_missing_or_conflicting_identifiers() {
     let a = &s.series[0];
     let mut b = a.clone();
     b.id = "other-study/second".into();
+    b.study_uid = "other-study".into();
     assert!(a.same_patient(&b));
     b.patient_issuer = "other-hospital".into();
     assert!(!a.same_patient(&b));
     b.patient_id.clear();
     assert!(!a.same_patient(&b));
     b.id = "study/second".into();
+    b.study_uid = "study".into();
     assert!(a.same_patient(&b));
     b.patient_name = "other-patient".into();
     assert!(!a.same_patient(&b));
@@ -466,6 +481,112 @@ fn draggable_study() -> State {
     state.series.push(second);
     state.split = true;
     state
+}
+
+#[test]
+fn study_headers_group_series_with_stable_keys_and_compact_noninteractive_layout() {
+    let mut state = draggable_study();
+    state.series[0].study_date = crate::dicom::Date::parse("20261107");
+    state.series[0].modality = "CT".into();
+    state.series[1].modality = "MR".into();
+    let mut other = state.series[0].clone();
+    other.id = "older/series".into();
+    other.study_uid = "older".into();
+    other.study_description.clear();
+    other.study_date = None;
+    state.series.push(other);
+    let mut rt = runtime(state, (1000.0, 680.0));
+    rt.frame(0.0);
+    let headers: Vec<_> = rt
+        .elements()
+        .into_iter()
+        .filter(|e| matches!(e.key.as_deref(), Some("study-study" | "study-older")))
+        .collect();
+    assert_eq!(headers.len(), 2);
+    assert!(
+        headers
+            .iter()
+            .all(|e| !e.focusable && !e.drag_out && e.fill.a == 0.0)
+    );
+    let first = rt.presented("study-study").unwrap().0;
+    let second = rt.presented("study-older").unwrap().0;
+    let row = rt.presented("series-study/series").unwrap().0;
+    let last = rt.presented("series-study/second").unwrap().0;
+    assert_eq!(first[1], 56.0);
+    assert_eq!(first[3], 60.0);
+    assert_eq!(row[1], first[1] + first[3] + 8.0);
+    assert_eq!(row[3], 86.0);
+    assert_eq!(second[1], last[1] + last[3] + 16.0);
+    let exposed = exposed_text(&rt);
+    assert!(exposed.contains("07 Nov 2026 · CT / MR"));
+    assert!(exposed.contains("Study 02"));
+    assert!(exposed.contains("Date unavailable"));
+    assert!(exposed.contains("CT · 1 image"));
+    assert!(exposed.contains("MR · 3 images"));
+    assert!(!exposed.contains("1 images"));
+    // Headers do not capture series drags or select an image pane.
+    let at = (first[0] + first[2] * 0.5, first[1] + first[3] * 0.5);
+    let target = rt.find("pane-1").unwrap();
+    rt.pointer_down(at.0, at.1);
+    rt.pointer_move(target.0, target.1);
+    rt.pointer_up(target.0, target.1);
+    rt.frame(0.0);
+    assert!(rt.state.series_drag.is_none());
+    assert!(rt.state.panes[1].selected.is_none());
+    // Study and row identities survive a whole-study reorder and Privacy mode.
+    let paths: Vec<_> = rt
+        .elements()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e.key.as_deref(),
+                Some("study-study" | "study-older" | "series-study/series")
+            )
+        })
+        .map(|e| (e.key.unwrap(), e.path))
+        .collect();
+    rt.update(|s, tx| {
+        s.series.rotate_right(1);
+        s.selected = Some(1);
+        s.toggle_privacy();
+        tx.instant();
+    });
+    rt.frame(0.0);
+    for (key, path) in paths {
+        let current = rt
+            .elements()
+            .into_iter()
+            .find(|e| e.key.as_deref() == Some(&key))
+            .unwrap();
+        assert_eq!(current.path, path);
+    }
+    assert!(exposed_text(&rt).contains("Date hidden · DICOM"));
+    assert!(!exposed_text(&rt).contains("07 Nov 2026"));
+    assert!(!exposed_text(&rt).contains("PRIVATE-"));
+}
+
+#[test]
+fn patient_birth_date_is_dicom_only_between_name_and_study_and_missing_date_is_omitted() {
+    let mut state = imported_study();
+    state.series[0].patient_birth_date = crate::dicom::Date::parse("19700101");
+    let mut rt = runtime(state, (1000.0, 680.0));
+    rt.frame(0.0);
+    let name = rt.presented("patient-name").unwrap().0;
+    let birth = rt.presented("patient-birth-date").unwrap().0;
+    let study = rt.presented("patient-study").unwrap().0;
+    assert_eq!(birth[1], name[1] + name[3] + 6.0);
+    assert_eq!(study[1], birth[1] + birth[3] + 6.0);
+    assert!(exposed_text(&rt).contains("Born 01 Jan 1970"));
+    rt.update(|s, tx| {
+        s.series[0].patient_birth_date = None;
+        tx.instant();
+    });
+    rt.frame(0.0);
+    assert!(rt.find("patient-birth-date").is_none());
+    assert!(!exposed_text(&rt).contains("Born "));
+    assert!(!exposed_text(&rt).contains("Birth date unavailable"));
+    let study = rt.presented("patient-study").unwrap().0;
+    assert_eq!(study[1], name[1] + name[3] + 6.0);
 }
 
 #[test]
