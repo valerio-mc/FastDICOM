@@ -167,6 +167,9 @@ is outside this experimental build.
 
 ## Verification
 
+Tests live in `tests/unit/` and remain private unit-test modules of the application;
+they do not require exposing application internals as a library API.
+
 ```sh
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
