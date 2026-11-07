@@ -1,8 +1,6 @@
-<img src="assets/app-icon.png" alt="FastDICOM icon" width="128" align="right">
-
-# FastDICOM
-
-**Open a folder. Explore a study. Close it.**
+<p align="center">
+  <img src="assets/social-preview.png" alt="FastDICOM — Open a folder. Explore a study." width="800">
+</p>
 
 A small, native DICOM viewer for macOS. No library to manage, no database to
 maintain, no cloud uploads—just your images and the tools to explore them.
