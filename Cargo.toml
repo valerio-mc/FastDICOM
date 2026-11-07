@@ -1,0 +1,19 @@
+[package]
+name = "FastDICOM"
+version = "0.1.0"
+edition = "2024"
+description = "A native, local-first imaging playground built with Rune"
+
+[[bin]]
+name = "fastdicom"
+path = "src/main.rs"
+
+[dependencies]
+rune = { git = "https://github.com/anomalyco/rune", rev = "6354c31b0fa6c94a86e534cabdfed972228e6c35", features = ["native-file-dialog"] }
+rune-fx = { git = "https://github.com/anomalyco/rune", rev = "6354c31b0fa6c94a86e534cabdfed972228e6c35" }
+dicom-object = "0.9"
+dicom-pixeldata = "0.9"
+dicom-parser = "0.9"
+dicom-transfer-syntax-registry = "0.9"
+jpeg-decoder = "0.3"
+wgpu = { version = "~30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "wgsl"] }
