@@ -138,10 +138,7 @@ pub(super) fn view(s: &State, cx: &mut Cx<State>) -> El {
                 .grow(1.0)
                 .min_h(0.0)
                 .min_w(0.0)
-                .children(
-                    (s.sidebar_visible && (s.panes.iter().any(|p| p.demo) || !s.series.is_empty()))
-                        .then(|| sidebar(s)),
-                )
+                .children((s.sidebar_visible && !s.series.is_empty()).then(|| sidebar(s)))
                 .child(viewports(s)),
         )
 }
@@ -157,6 +154,10 @@ fn header(s: &State) -> El {
         .center_y()
         .fill(ink("#101318"))
         .window_drag()
+        .child(row().key("app-identity").center_y().gap(7.0)
+            .child(app_logo(s))
+            .child(label("FastDICOM", 14.0, 500.0, foreground())))
+        .child(el().grow(1.0))
         .child(icon_button("toggle-sidebar", "Toggle sidebar · ⌘B", &icons::SIDEBAR, s.sidebar_visible)
             .size(28.0, 28.0)
             .checked(s.sidebar_visible)
@@ -172,10 +173,6 @@ fn header(s: &State) -> El {
                 format!("Open folder · ⌘O · {} non-image or unreadable files skipped during import", s.skipped_files)
             } else { "Open folder · ⌘O".into() })
             .on_press_tx(open_dialog))
-        .child(row().key("app-identity").center_y().gap(7.0).ml(8.0)
-            .child(app_logo(s))
-            .child(label("FastDICOM", 14.0, 500.0, foreground())))
-        .child(el().grow(1.0))
         .child(icon_button("privacy-toggle", "Hide patient details", if s.privacy { &icons::EYE_OFF } else { &icons::EYE }, s.privacy)
             .size(30.0, 28.0)
             .fill(if s.privacy { accent().alpha(0.10) } else { Color::WHITE.alpha(0.04) })
@@ -256,6 +253,13 @@ fn tool_dock(s: &State) -> El {
     let fit = icon_button("fit", "Fit image · F", &icons::FIT, false);
     let reset_button = icon_button("reset", "Reset · R", &icons::RESET, false);
     let invert = icon_button("invert", "Invert · I", &icons::INVERT, s.invert).checked(s.invert);
+    let flip = icon_button(
+        "flip-horizontal",
+        "Flip horizontally",
+        &icons::FLIP_HORIZONTAL,
+        s.horizontal_flip,
+    )
+    .checked(s.horizontal_flip);
     let rotate = icon_button("rotate", "Rotate clockwise 90°", &icons::ROTATE, false);
     let auto = icon_button("auto-contrast", "Auto contrast · A", &icons::AUTO, false)
         .help("Auto contrast · A · 1–99% of valid intensities from up to five representative slices; excludes declared padding.");
@@ -273,6 +277,10 @@ fn tool_dock(s: &State) -> El {
             tx.instant();
         }))
         .child(invert.on_press(|s: &mut State| s.toggle_invert()))
+        .child(flip.on_press_tx(|s: &mut State, tx| {
+            s.horizontal_flip = !s.horizontal_flip;
+            tx.instant();
+        }))
         .child(rotate.on_press_tx(|s: &mut State, tx| {
             s.rotation = (s.rotation + std::f32::consts::FRAC_PI_2) % std::f32::consts::TAU;
             tx.instant();
@@ -282,6 +290,7 @@ fn tool_dock(s: &State) -> El {
             .child(reset_button.disabled(true).dim(0.35))
             .child(auto.disabled(true).dim(0.35))
             .child(invert.disabled(true).dim(0.35))
+            .child(flip.disabled(true).dim(0.35))
             .child(rotate.disabled(true).dim(0.35))
     };
     if s.is_ct() {
@@ -438,7 +447,7 @@ fn sidebar(s: &State) -> El {
                 .map_or(s.series.len(), |offset| index + offset);
             list = list.child(study_header(s, index, end, study_number));
         }
-        let selected = s.selected == Some(index) && !s.demo;
+        let selected = s.selected == Some(index);
         let hovered = s.hovered_series.as_deref() == Some(series.id.as_str());
         let raised = selected || hovered;
         // Modality is metadata, not a fabricated image preview.
@@ -524,32 +533,7 @@ fn sidebar(s: &State) -> El {
             item
         });
     }
-    if s.panes.iter().any(|p| p.demo) {
-        list = list.child(glass::surface(
-            col()
-                .key("synthetic-series")
-                .w_full()
-                .h(86.0)
-                .padding(12.0)
-                .gap(6.0)
-                .radius(10.0)
-                .role("button")
-                .label("Synthetic phantom, 160 images")
-                .focusable(true)
-                .on_press(|s: &mut State| s.load_demo())
-                .child(
-                    el().pin(Some(0.0), Some(18.0), None, Some(18.0))
-                        .w(2.0)
-                        .radius(1.0)
-                        .fill(selection().alpha(0.8))
-                        .a11y_hidden(),
-                )
-                .child(label("Synthetic phantom", 12.0, 550.0, foreground()))
-                .child(label("160 images", 10.0, 450.0, muted())),
-            glass::SELECTED_ROW,
-            0.025,
-        ));
-    } else if s.series.is_empty() {
+    if s.series.is_empty() {
         list = list.child(
             label("No series", 11.0, 400.0, muted())
                 .key("no-series")
@@ -599,7 +583,7 @@ fn empty_state() -> El {
                 .mt(12.0)
                 .child(open_button("open-folder-empty", true))
                 .child(
-                    button("try-demo", "Synthetic demo", false)
+                    button("try-demo", "Demo", false)
                         .border(1.0, line())
                         .on_press(|s: &mut State| s.demo()),
                 ),
@@ -729,11 +713,7 @@ fn viewports(s: &State) -> El {
 
 fn viewport(s: &State, pane: usize) -> El {
     let p = &s.panes[pane];
-    let count = if p.demo {
-        160
-    } else {
-        p.selected.map_or(0, |i| s.series[i].files.len())
-    };
+    let count = p.selected.map_or(0, |i| s.series[i].files.len());
     let pending = s.scan.is_pending()
         || p.render.is_pending()
         || (p.frame.is_some() && p.index != p.displayed_index);
@@ -783,13 +763,10 @@ fn viewport(s: &State, pane: usize) -> El {
                 .offset(p.pan.0, p.pan.1)
                 .a11y_hidden(),
         );
-        let name = if p.demo {
-            "Synthetic thoracic phantom".to_owned()
-        } else {
-            p.selected
-                .map(|index| series_title(s, index))
-                .unwrap_or_default()
-        };
+        let name = p
+            .selected
+            .map(|index| series_title(s, index))
+            .unwrap_or_default();
         canvas = canvas.child(
             col()
                 .key("image-info")
@@ -800,16 +777,7 @@ fn viewport(s: &State, pane: usize) -> El {
                 .padding(8.0)
                 .gap(7.0)
                 .child(floating_label(name, 12.0, 600.0, foreground()))
-                .child(floating_label(
-                    if p.demo {
-                        "Synthetic · Not patient data"
-                    } else {
-                        ""
-                    },
-                    9.0,
-                    550.0,
-                    if p.demo { ink("#F0BF76") } else { muted() },
-                )),
+                .child(floating_label("", 9.0, 550.0, muted())),
         );
         canvas = canvas.child(
             row()

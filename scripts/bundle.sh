@@ -6,6 +6,13 @@ cd "$ROOT"
 cargo build --release --locked
 APP="$ROOT/dist/FastDICOM.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$ROOT/target/AppIcon.iconset"
+# Synchronize only this generated resource directory; preserve all source studies.
+SAMPLES="$ROOT/samples"
+if [[ ! -d "$SAMPLES" || -L "$SAMPLES" ]]; then
+  print -u2 "Missing samples directory: $SAMPLES"
+  exit 1
+fi
+rsync -a --delete --exclude='.DS_Store' "$SAMPLES/" "$APP/Contents/Resources/samples/"
 cp "$ROOT/target/aarch64-apple-darwin/release/fastdicom" "$APP/Contents/MacOS/FastDICOM.new"
 mv -f "$APP/Contents/MacOS/FastDICOM.new" "$APP/Contents/MacOS/FastDICOM"
 for size in 16 32 128 256 512; do

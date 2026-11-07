@@ -1,16 +1,71 @@
 use super::*;
 
-fn demo_state() -> State {
-    State {
-        panes: [
-            Pane {
-                demo: true,
-                ..Pane::default()
-            },
-            Pane::default(),
-        ],
-        ..State::default()
+#[test]
+fn demo_resolves_source_samples_from_the_working_directory() {
+    assert_eq!(
+        demo_samples_path(
+            Path::new("/build/target/debug/fastdicom"),
+            Path::new("/checkout")
+        ),
+        PathBuf::from("/checkout/samples")
+    );
+}
+
+#[test]
+fn demo_resolves_bundle_resources_independently_of_working_directory() {
+    let executable = Path::new("/Applications/FastDICOM.app/Contents/MacOS/FastDICOM");
+    for cwd in ["/", "/checkout"] {
+        assert_eq!(
+            demo_samples_path(executable, Path::new(cwd)),
+            PathBuf::from("/Applications/FastDICOM.app/Contents/Resources/samples")
+        );
     }
+    // A MacOS directory outside an app bundle is not a packaged installation.
+    assert_eq!(
+        demo_samples_path(Path::new("/build/MacOS/fastdicom"), Path::new("/checkout")),
+        PathBuf::from("/checkout/samples")
+    );
+}
+
+#[test]
+fn missing_demo_pack_reports_recovery_without_scheduling_a_fake_image() {
+    let mut state = State::default();
+    let missing =
+        std::env::temp_dir().join(format!("fastdicom-missing-demo-{}", std::process::id()));
+    assert!(!missing.exists());
+    state.open_demo_path(missing.clone());
+    let error = state.error.as_deref().unwrap();
+    assert!(error.contains(&missing.display().to_string()));
+    assert!(error.contains("scripts/bundle.sh"));
+    assert!(error.contains("Open folder"));
+    assert!(!state.scan.is_pending());
+    assert!(state.series.is_empty());
+    assert!(
+        state
+            .panes
+            .iter()
+            .all(|pane| pane.frame.is_none() && !pane.render.is_pending())
+    );
+}
+
+#[test]
+fn reset_geometry_clears_horizontal_flip_only_in_the_active_pane() {
+    let mut state = State::default();
+    assert!(state.panes.iter().all(|pane| !pane.horizontal_flip));
+    for pane in &mut state.panes {
+        pane.horizontal_flip = true;
+        pane.rotation = std::f32::consts::FRAC_PI_2;
+        pane.zoom = 2.0;
+        pane.pan = (10.0, 20.0);
+    }
+    state.active = 1;
+    state.reset_geometry();
+    assert!(!state.panes[1].horizontal_flip);
+    assert_eq!(state.panes[1].rotation, 0.0);
+    assert_eq!(state.panes[1].zoom, 1.0);
+    assert_eq!(state.panes[1].pan, (0.0, 0.0));
+    assert!(state.panes[0].horizontal_flip);
+    assert_eq!(state.panes[0].rotation, std::f32::consts::FRAC_PI_2);
 }
 
 fn contrast_study(supplied: bool) -> State {
@@ -233,10 +288,10 @@ fn automatic_requests_are_pane_local_and_move_with_retained_active_pane() {
 fn independent_window_revisions_and_latest_requests_survive_active_retention() {
     let mut s = State {
         split: true,
-        ..State::default()
+        ..fixtures::cached_study(160)
     };
     for p in &mut s.panes {
-        p.demo = true;
+        p.selected = Some(0);
         p.initialize_window = true;
     }
     s.window = 222.0;
@@ -261,7 +316,10 @@ fn independent_window_revisions_and_latest_requests_survive_active_retention() {
         .expect("retained request completed")
         .unwrap();
     s.accept_image(result);
-    assert_eq!(s.window, 1500.0);
+    assert_eq!(
+        s.window,
+        dicom::robust_window(&s.frame.as_ref().unwrap().contrast_samples).0
+    );
     assert_eq!(s.window_revision, 0);
     assert!(!s.initialize_window);
     assert!(s.panes[1].frame.is_none());
@@ -272,11 +330,11 @@ fn independent_window_revisions_and_latest_requests_survive_active_retention() {
 fn clearing_one_latest_cannot_cancel_or_deliver_into_the_other_pane() {
     let mut s = State {
         split: true,
-        ..State::default()
+        ..fixtures::cached_study(160)
     };
     for pane in 0..2 {
         s.active = pane;
-        s.demo = true;
+        s.selected = Some(0);
         s.index = pane + 5;
         s.request_image(true);
     }
@@ -296,12 +354,15 @@ fn clearing_one_latest_cannot_cancel_or_deliver_into_the_other_pane() {
     s.active = 1;
     s.accept_image(result);
     assert_eq!(s.displayed_index, 6);
-    assert_eq!(s.window, 1500.0);
+    assert_eq!(
+        s.window,
+        dicom::robust_window(&s.frame.as_ref().unwrap().contrast_samples).0
+    );
 }
 
 #[test]
 fn slice_navigation_clamps_and_preserves_requested_index() {
-    let mut s = demo_state();
+    let mut s = fixtures::cached_study(160);
     s.step(-100);
     assert_eq!(s.index, 0);
     s.step(1000);
@@ -340,7 +401,7 @@ fn window_controls_do_not_schedule_decode_work() {
 
 #[test]
 fn first_window_initialization_survives_navigation_but_not_a_user_edit() {
-    let mut s = demo_state();
+    let mut s = fixtures::cached_study(160);
     s.request_image(true);
     s.step(1);
     assert!(s.initialize_window);
@@ -353,8 +414,10 @@ fn first_window_initialization_survives_navigation_but_not_a_user_edit() {
         default_window,
         window_revision,
     });
-    assert_eq!(s.window, 1500.0);
-    assert_eq!(s.level, -500.0);
+    assert_eq!(
+        (s.window, s.level),
+        dicom::robust_window(&s.frame.as_ref().unwrap().contrast_samples)
+    );
     assert!(!s.initialize_window);
 
     s.initialize_window = true;
@@ -372,7 +435,7 @@ fn first_window_initialization_survives_navigation_but_not_a_user_edit() {
 
 #[test]
 fn toolbar_invert_and_fit_change_presentation() {
-    let mut state = demo_state();
+    let mut state = fixtures::cached_study(160);
     state.frame = Some(Arc::new(synthetic_frame(80)));
     state.zoom = 2.0;
     state.pan = (20.0, 30.0);
@@ -395,7 +458,7 @@ fn toolbar_invert_and_fit_change_presentation() {
 
 #[test]
 fn inversion_during_first_load_preserves_window_initialization() {
-    let mut state = demo_state();
+    let mut state = fixtures::cached_study(160);
     state.initialize_window = true;
     state.toggle_invert();
     assert!(state.invert);
@@ -407,13 +470,16 @@ fn inversion_during_first_load_preserves_window_initialization() {
         default_window: true,
         window_revision: revision,
     });
-    assert_eq!(state.window, 1500.0);
+    assert_eq!(
+        state.window,
+        dicom::robust_window(&state.frame.as_ref().unwrap().contrast_samples).0
+    );
     assert!(state.invert);
 }
 
 #[test]
 fn pending_slice_keeps_the_displayed_image_visible() {
-    let mut state = demo_state();
+    let mut state = fixtures::cached_study(160);
     state.index = 1;
     state.frame = Some(Arc::new(synthetic_frame(0)));
     let mut runtime =

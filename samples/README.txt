@@ -1,68 +1,51 @@
 FastDICOM demo sample pack
 =========================
-DEMONSTRATION ONLY - NOT FOR DIAGNOSIS OR TREATMENT.
-CT/MRI images are synthetic mathematical phantoms, not anatomically
-accurate clinical studies. Chest X-rays are REAL public de-identified
-radiographs from TCIA LIDC-IDRI, not synthetic images.
+REAL PUBLIC DE-IDENTIFIED IMAGES - DEMONSTRATION ONLY, NOT FOR CLINICAL USE.
+Names and birth dates are fictional; the anatomy is not synthetic.
 
-Open this folder using FastDICOM's Open folder command (Cmd+O).
-The app discovers the DICOM images recursively.
+Open this whole folder in FastDICOM: 3 studies, 4 series, 102 images.
 
-Included (3 studies, 4 series, 82 images):
-- XRay-Chest: real PA and lateral chest radiographs (2 images, 1 series).
-- MRI-Brain/T1: 20 axial T1 phantom images, 256 x 256.
-- MRI-Brain/T2: 20 axial T2 phantom images, 256 x 256.
-- CT-Torso: 40 axial chest/torso phantom images, 512 x 512.
-  This is NOT a dedicated abdominal CT study.
+- CT-Chest: 50 contiguous chest CT slices, instances 42-91 of a 133-image
+  LIDC-IDRI series. This is an excerpt, not a complete CT examination.
+- MRI-Brain/T1-Postcontrast: all 20 slices of the source T1 postcontrast series.
+- MRI-Brain/T2: 30 contiguous slices, instances 4-33 of 36 source images.
+  These real MRI sequences cover the internal auditory canal/posterior fossa,
+  NOT the whole brain. Source authors already defaced the MRI images.
+- XRay-Chest: the existing real PA and lateral chest radiographs (2 images).
 
-The T1 and T2 series belong to the same synthetic patient and can be
-compared side by side. CT, MR and X-ray have distinct sample patient IDs;
-FastDICOM intentionally clears the other pane when switching patients.
+Every image uses PatientName=Doe^John and PatientBirthDate=19700101
+(1 January 1970). These values do not describe the source participants.
+PatientAge was removed and a demo notice added to PatientComments.
+Source patient pseudonyms, UIDs, sex, geometry and rescale remain; source
+dates are de-identification values, not an actual clinical chronology.
+CT also omits non-patient name placeholders and private collection tags.
+Pixel data was not changed during this demo preparation.
 
-Fictional demographics in EVERY image:
-- PatientName (0010,0010): Doe^John (standard DICOM family^given encoding).
-- PatientBirthDate (0010,0030): 19700101 (1 January 1970).
-These demographics do not describe the real radiograph subject.
-The viewer displays the encoded patient name and birth date. Privacy mode
-hides both, together with study descriptions and dates. Source dates are
-demo/de-identification values, not a clinical history; source sex and public
-dataset identifiers remain unchanged.
+CT, MRI and radiographs represent DIFFERENT source participants:
+LIDC-IDRI-0001, VS-SEG-243 and LIDC-IDRI-0232 respectively. Do not treat them
+as one John Doe clinical history. Only the two MRI series share a study and
+can be compared together; the viewer clears other patients from the other pane.
 
-Changes: replaced PatientName/PatientBirthDate, removed any original
-PatientAge to avoid conflicting demographics, and added a demo notice in
-PatientComments. Pixel data and study/series/instance identifiers were
-preserved. The original synthetic chest X-ray was replaced by the real pair.
-The unsupported RGB CT dose-report image remains omitted.
-All included images use single-frame MONOCHROME2, 16-bit integer storage,
-and supported uncompressed little-endian transfer syntaxes.
-README/LICENSE are non-image files and may count as skipped on import.
-
-CT/MRI source: CharruaSoft DICOM Samples (CC0 1.0)
-https://www.charruasoft.com/dicom-samples
-https://www.charruasoft.com/products/samples/zip/charruasoft-dicom-samples-ct.zip
-https://www.charruasoft.com/products/samples/zip/charruasoft-dicom-samples-mr.zip
-Retrieved: 2026-11-07
-See LICENSE.txt for the CharruaSoft license ONLY (includes the source
-catalog's ECG notice; no ECG files are included here).
-
-Chest X-ray source: TCIA LIDC-IDRI (CC BY 3.0; NOT covered by CC0)
-https://www.cancerimagingarchive.net/collection/lidc-idri/
+Sources and licenses
+--------------------
+CT and radiographs: TCIA LIDC-IDRI, CC BY 3.0.
 https://doi.org/10.7937/K9/TCIA.2015.LO9QL9SX
-https://creativecommons.org/licenses/by/3.0/
-Original public dataset ID: LIDC-IDRI-0232
-Study UID: 1.3.6.1.4.1.14519.5.2.1.6279.6001.329528275573582416795597707236
-Series UID: 1.3.6.1.4.1.14519.5.2.1.6279.6001.210618824080932755350370549788
-Retrieved directly through TCIA's NBIA API: 2026-11-07.
-Full dataset citation: see CITATION.txt.
-See LICENSE-TCIA-LIDC-IDRI.txt for the source license and usage policy.
-Retain attribution, license links, source/change notices, and pass along
-TCIA's data usage policy when redistributing. Do not attempt to identify
-or contact participants. Policy:
+https://www.cancerimagingarchive.net/collection/lidc-idri/
+See LICENSE-TCIA-LIDC-IDRI.txt.
+
+MRI: TCIA Vestibular-Schwannoma-MC-RC, Version 2, CC BY 4.0.
+https://doi.org/10.7937/hrzh-2n82
+https://www.cancerimagingarchive.net/collection/vestibular-schwannoma-mc-rc/
+See LICENSE-TCIA-VS-MC-RC.txt.
+
+Retrieved directly through TCIA's NBIA API on 2026-11-07. Full dataset
+citations and exact series download URLs are in CITATION.txt.
+Retain attribution, licenses, changes notices and the TCIA usage-policy link
+when redistributing, and require downstream users to do likewise:
 https://www.cancerimagingarchive.net/data-usage-policies-and-restrictions/
+Do not attempt to identify or contact participants. Public de-identification
+and our metadata/visual checks are not a guarantee of anonymity.
 
 The authors acknowledge the National Cancer Institute and the Foundation
 for the National Institutes of Health, and their critical role in the
 creation of the free publicly available LIDC/IDRI Database used in this study.
-
-Open this folder for the multi-study examples. The built-in Synthetic demo
-remains a separate mathematical phantom.

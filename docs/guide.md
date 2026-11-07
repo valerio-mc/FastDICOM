@@ -52,15 +52,19 @@ metadata parsing. Element lengths, nesting, metadata allocation and compressed
 output are bounded. These checks are not a security certification or a guarantee
 against every dependency vulnerability.
 
-The synthetic demo is a mathematically generated phantom, not a patient study or
-an anatomically accurate teaching image. It is explicitly marked in the viewer.
+**Demo** opens the entire included real, public de-identified sample pack. Names
+and birth dates are fictional; the images are not synthetic. CT/MRI coverage is
+limited, and the studies are not a clinical history of one patient. Source terms
+and modifications are documented in `samples/README.txt`.
 
 ## Viewing
 
 - Scroll over the image to change slices; use arrow keys with the viewport focused.
 - Select Window/level, Pan, or Zoom, then drag over the image.
 - Pinch to zoom. Fit resets image geometry; Reset restores default window/level too.
-- Invert and rotate operate on the current image presentation.
+- Invert, horizontal flip, and rotate operate on the current image presentation.
+  Horizontal flip mirrors the displayed image left/right, including after rotation;
+  Fit and Reset clear it. It does not alter DICOM files or their orientation metadata.
 - Auto contrast runs by default when opening a series. The histogram icon (**A**) recalculates it for the active
   pane. CT series also expose a native preset menu: soft tissue **400/40**, lung
   **1500/−600**, and bone **2000/400** (width/level, modality-rescaled values).
@@ -180,7 +184,7 @@ they do not require exposing application internals as a library API.
 ```sh
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
-cargo run --locked -- --scene demo --snap /absolute/scratch/fastdicom.png
+cargo run --locked -- samples --frames 120 --snap /absolute/scratch/fastdicom.png
 ```
 
 Native-window behavior, VoiceOver, color/display calibration and representative

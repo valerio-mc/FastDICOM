@@ -3,7 +3,7 @@ struct Uniforms {
     rect: vec4<f32>,
     viewport: vec4<f32>, // layer origin, target size
     image: vec4<f32>, // image size, window, level
-    options: vec4<f32>, // inversion, sRGB blending, reserved, clockwise rotation in radians
+    options: vec4<f32>, // inversion, sRGB blending, horizontal flip, clockwise rotation in radians
     clip: vec4<f32>,
     fade: vec4<u32>,
     slot: vec4<f32>,
@@ -24,7 +24,9 @@ struct Vertex {
     let local = (uv - vec2(0.5)) * u.rect.zw;
     let cosine = cos(u.options.w);
     let sine = sin(u.options.w);
-    let rotated = vec2(cosine * local.x - sine * local.y, sine * local.x + cosine * local.y);
+    var rotated = vec2(cosine * local.x - sine * local.y, sine * local.x + cosine * local.y);
+    // Mirror in display space, so this stays left/right after a quarter turn.
+    if u.options.z > 0.5 { rotated.x = -rotated.x; }
     let center = u.rect.xy + u.rect.zw * 0.5;
     let p = (center + rotated - u.viewport.xy) / u.viewport.zw;
     return Vertex(vec4(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, 0.0, 1.0), uv);

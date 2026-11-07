@@ -18,17 +18,17 @@ On Apple Silicon macOS, with the pinned Rust toolchain:
 cargo run --locked -- /path/to/dicom-folder
 ```
 
-Or run without a path and choose **Open folder** or **Synthetic demo**.
+Or run without a path and choose **Open folder** or **Demo**.
 
 Try the included [sample pack](samples/README.txt): three studies, four series,
-and 82 images. Open `samples/` to browse them.
+and 102 real, public de-identified images. Open `samples/` to browse them.
 
 See the [guide](docs/guide.md) for controls, supported formats, privacy limits,
 local app bundling, and verification commands.
 
 ## References
 
-- Synthetic CT/MR samples: [CharruaSoft DICOM Samples](https://www.charruasoft.com/dicom-samples), CC0 1.0.
-- Chest radiographs: Armato et al., [LIDC-IDRI / TCIA](https://doi.org/10.7937/K9/TCIA.2015.LO9QL9SX), CC BY 3.0; modified demo demographics.
+- CT and chest radiographs: Armato et al., [LIDC-IDRI / TCIA](https://doi.org/10.7937/K9/TCIA.2015.LO9QL9SX), CC BY 3.0.
+- MRI: Kujawa et al., [Vestibular-Schwannoma-MC-RC / TCIA](https://doi.org/10.7937/hrzh-2n82), CC BY 4.0.
 
 Full attribution, changes, and usage terms are included with the [samples](samples/README.txt).

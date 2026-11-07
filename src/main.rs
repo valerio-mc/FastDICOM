@@ -7,7 +7,7 @@ mod ui;
 
 use rune::{App, AppSpec, FileDialogOptions, Key, KeyEvent, Latest, Tx};
 use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -97,9 +97,12 @@ struct Pane {
     zoom: f32,
     pan: (f32, f32),
     rotation: f32,
+    horizontal_flip: bool,
     tool: Tool,
     drag_origin: (f32, f32, f32, f32, f32),
     wheel_remainder: f32,
+    // Test-only switch used by the compositor's independent glass fixture.
+    #[cfg(test)]
     demo: bool,
     error: Option<String>,
     render: Latest<Result<Rendered, String>>,
@@ -165,9 +168,11 @@ impl Default for Pane {
             zoom: 1.0,
             pan: (0.0, 0.0),
             rotation: 0.0,
+            horizontal_flip: false,
             tool: Tool::Window,
             drag_origin: (400.0, 40.0, 1.0, 0.0, 0.0),
             wheel_remainder: 0.0,
+            #[cfg(test)]
             demo: false,
             error: None,
             render: Latest::default(),
@@ -262,7 +267,6 @@ impl State {
         if self.panes[other]
             .selected
             .is_some_and(|i| !self.series[i].same_patient(series))
-            || self.panes[other].demo
         {
             self.clear_pane(other);
         }
@@ -325,11 +329,7 @@ impl State {
     }
 
     fn count(&self) -> usize {
-        if self.demo {
-            160
-        } else {
-            self.selected.map_or(0, |i| self.series[i].files.len())
-        }
+        self.selected.map_or(0, |i| self.series[i].files.len())
     }
 
     fn open(&mut self, path: PathBuf) {
@@ -359,6 +359,7 @@ impl State {
         self.zoom = 1.0;
         self.pan = (0.0, 0.0);
         self.rotation = 0.0;
+        self.horizontal_flip = false;
     }
 
     fn step(&mut self, delta: i32) {
@@ -375,27 +376,21 @@ impl State {
     }
 
     fn request_image(&mut self, default_window: bool) {
-        let path = self
+        let Some(path) = self
             .selected
             .and_then(|i| self.series[i].files.get(self.index))
-            .cloned();
-        if !self.demo && path.is_none() {
+            .cloned()
+        else {
             return;
-        }
+        };
         self.error = None;
         self.initialize_window |= default_window;
         let default_window = self.initialize_window;
-        let demo = self.demo;
         let index = self.index;
         let window_revision = self.window_revision;
         let cache = self.cache.clone();
         self.render.request((), move |_| {
-            let frame = if demo {
-                Arc::new(synthetic_frame(index))
-            } else {
-                let path = path.expect("real requests carry a file path");
-                cached_frame(path, &cache)?
-            };
+            let frame = cached_frame(path, &cache)?;
             Ok(Rendered {
                 frame,
                 index,
@@ -406,11 +401,9 @@ impl State {
     }
 
     fn is_ct(&self) -> bool {
-        !self.demo
-            && self
-                .selected
-                .and_then(|i| self.series.get(i))
-                .is_some_and(|s| s.modality == "CT")
+        self.selected
+            .and_then(|i| self.series.get(i))
+            .is_some_and(|s| s.modality == "CT")
     }
 
     fn ct_preset(&mut self, preset: CtPreset) {
@@ -472,29 +465,43 @@ impl State {
     }
 
     fn demo(&mut self) {
-        self.series_windows.clear();
-        self.series_drag = None;
-        self.series_rects.clear();
-        self.hovered_drop = None;
-        self.hovered_series = None;
-        self.hovered_patient_info = false;
-        self.scan.cancel();
-        self.clear_pane(0);
-        self.clear_pane(1);
-        self.active = 0;
-        if let Some(thumbnails) = &mut self.thumbnails {
-            thumbnails.clear();
+        match std::env::current_exe()
+            .and_then(|exe| std::env::current_dir().map(|cwd| demo_samples_path(&exe, &cwd)))
+        {
+            Ok(path) => self.open_demo_path(path),
+            Err(error) => {
+                self.error = Some(format!(
+                    "Could not locate Demo samples: {error}. Use Open folder to choose a DICOM folder."
+                ));
+            }
         }
-        self.series.clear();
-        self.load_demo();
     }
 
-    fn load_demo(&mut self) {
-        self.clear_pane(self.active);
-        self.demo = true;
-        self.index = 80;
-        self.request_image(true);
+    fn open_demo_path(&mut self, path: PathBuf) {
+        if !path.is_dir() {
+            self.error = Some(format!(
+                "Demo samples are missing at {}. Rebuild the app bundle with scripts/bundle.sh, run from the source folder, or use Open folder to choose a DICOM folder.",
+                path.display()
+            ));
+            return;
+        }
+        self.open(path);
     }
+}
+
+fn demo_samples_path(executable: &Path, working_directory: &Path) -> PathBuf {
+    if let Some(macos) = executable.parent()
+        && macos.file_name().is_some_and(|name| name == "MacOS")
+        && let Some(contents) = macos.parent()
+        && contents.file_name().is_some_and(|name| name == "Contents")
+        && contents
+            .parent()
+            .is_some_and(|app| app.extension().is_some_and(|ext| ext == "app"))
+    {
+        // A broken bundle must report its missing resources, not borrow a source checkout.
+        return contents.join("Resources/samples");
+    }
+    working_directory.join("samples")
 }
 
 impl Pane {
@@ -525,18 +532,13 @@ impl Pane {
         let initialize = self.initialize_window
             && result.default_window
             && result.window_revision == self.window_revision;
-        let auto = initialize && !self.demo;
         if initialize {
-            (self.window, self.level) = if auto {
-                dicom::robust_window(&result.frame.contrast_samples)
-            } else {
-                (result.frame.window, result.frame.level)
-            };
+            (self.window, self.level) = dicom::robust_window(&result.frame.contrast_samples);
             self.initialize_window = false;
         }
         self.frame = Some(result.frame);
         self.displayed_index = result.index;
-        auto
+        initialize
     }
 }
 
@@ -557,55 +559,6 @@ fn cached_frame(
         .map_err(|_| "Image cache unavailable")?
         .insert(path, frame.clone());
     Ok(frame)
-}
-
-fn synthetic_frame(index: usize) -> dicom::Frame {
-    let size = 512;
-    let z = (index as f32 - 80.0) / 100.0;
-    let mut values = vec![-1000.0; size * size];
-    for y in 0..size {
-        for x in 0..size {
-            let u = (x as f32 - 256.0) / 200.0;
-            let v = (y as f32 - 256.0) / 200.0;
-            let r = u * u / 0.85 + v * v;
-            let noise = ((x * 17 + y * 31 + index * 7) % 23) as f32 - 11.0;
-            let mut value = -1000.0;
-            if r < 0.91 - z * z * 0.15 {
-                value = 25.0 + noise;
-            }
-            if r > 0.82 - z * z * 0.15 && r < 0.91 - z * z * 0.15 {
-                value = -90.0 + noise;
-            }
-            for side in [-1.0, 1.0] {
-                let lung = (u - side * 0.37).powi(2) / 0.08 + (v + 0.12).powi(2) / 0.27;
-                if lung < 1.0 && r < 0.8 {
-                    value = -780.0 + noise * 4.0;
-                }
-                let bone = (u - side * 0.68).powi(2) + (v - 0.08).powi(2);
-                if bone < 0.006 {
-                    value = 850.0 + noise;
-                }
-            }
-            if u * u / 0.035 + (v - 0.51).powi(2) / 0.025 < 1.0 {
-                value = 650.0 + noise;
-            }
-            if (u - 0.08).powi(2) / 0.09 + (v - 0.10).powi(2) / 0.12 < 1.0 {
-                value = 70.0 + noise;
-            }
-            values[y * size + x] = value;
-        }
-    }
-    dicom::Frame {
-        width: size as u32,
-        height: size as u32,
-        contrast_samples: values.iter().step_by(32).copied().collect(),
-        values,
-        window: 1500.0,
-        level: -500.0,
-        supplied_window: true,
-        inverted: false,
-        pixel_aspect: 1.0,
-    }
 }
 
 fn open_dialog(_: &mut State, tx: &mut Tx) {
@@ -743,29 +696,6 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         on_key: Some(keys),
-        scenes: &[
-            ("demo", |s| {
-                s.demo = true;
-                s.index = 80;
-                s.displayed_index = 80;
-                let frame = synthetic_frame(80);
-                s.window = frame.window;
-                s.level = frame.level;
-                s.frame = Some(Arc::new(frame));
-            }),
-            ("split-demo", |s| {
-                s.split = true;
-                for (i, pane) in s.panes.iter_mut().enumerate() {
-                    let frame = synthetic_frame(50 + i * 50);
-                    pane.demo = true;
-                    pane.index = 50 + i * 50;
-                    pane.displayed_index = pane.index;
-                    pane.window = frame.window;
-                    pane.level = frame.level;
-                    pane.frame = Some(Arc::new(frame));
-                }
-            }),
-        ],
         ..AppSpec::new("FastDICOM", (1280.0, 840.0), State::default, ui::view)
     })
     .compositor(gpu::ImagingCompositor::default())
@@ -780,6 +710,12 @@ fn main() {
     })
     .run();
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/fixtures.rs"]
+mod fixtures;
+#[cfg(test)]
+use fixtures::synthetic_frame;
 
 #[cfg(test)]
 #[path = "../tests/unit/app.rs"]

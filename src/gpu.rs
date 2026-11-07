@@ -85,7 +85,7 @@ impl Compositor<State> for ImagingCompositor {
             f.rt.state
                 .panes
                 .each_ref()
-                .map(|p| (p.window, p.level, p.invert, p.rotation));
+                .map(|p| (p.window, p.level, p.invert, p.rotation, p.horizontal_flip));
         let clear = f.rt.clear_color();
         f.ui.prepare(
             f.device,
@@ -101,7 +101,7 @@ impl Compositor<State> for ImagingCompositor {
                 return;
             }
             let pane = (site.mark - 1) as usize;
-            let (window, level, invert, rotation) = presentation[pane];
+            let (window, level, invert, rotation, horizontal_flip) = presentation[pane];
             let EffectPhase::Draw(pass) = phase else {
                 return;
             };
@@ -140,7 +140,15 @@ impl Compositor<State> for ImagingCompositor {
                     bind_group,
                 }
             });
-            let bytes = uniforms(site, &image.frame, window, level, invert, rotation);
+            let bytes = uniforms(
+                site,
+                &image.frame,
+                window,
+                level,
+                invert,
+                rotation,
+                horizontal_flip,
+            );
             f.queue.write_buffer(&slot.uniform, 0, &bytes);
             pass.set_pipeline(&gpu.pipelines[&site.format]);
             pass.set_bind_group(0, &slot.bind_group, &[]);
@@ -311,6 +319,7 @@ fn uniforms(
     level: f32,
     invert: bool,
     rotation: f32,
+    horizontal_flip: bool,
 ) -> [u8; UNIFORM_BYTES as usize] {
     let [x, y, width, height] = site.instance.rect;
     let (w, h) = fitted_size(frame, width, height, rotation);
@@ -328,7 +337,7 @@ fn uniforms(
         [
             if frame.inverted ^ invert { 1.0 } else { 0.0 },
             if site.srgb_blend { 1.0 } else { 0.0 },
-            1.0,
+            if horizontal_flip { 1.0 } else { 0.0 },
             rotation,
         ],
         site.instance.clip,

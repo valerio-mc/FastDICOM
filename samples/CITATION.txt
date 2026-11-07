@@ -19,6 +19,35 @@ License: https://creativecommons.org/licenses/by/3.0/
 Usage policy: https://www.cancerimagingarchive.net/data-usage-policies-and-restrictions/
 
 Retain the attribution, license, change notices and usage-policy link when
-redistributing these radiographs, and require downstream users to do likewise.
-Do not attempt to identify or contact participants. The CC0 license for the
-synthetic CT/MR samples does not apply to the radiographs.
+redistributing these CT images and radiographs, and require downstream users
+to do likewise. Do not attempt to identify or contact participants.
+
+CT source series (instances 42-91 of 133):
+https://services.cancerimagingarchive.net/nbia-api/services/v1/getImage?SeriesInstanceUID=1.3.6.1.4.1.14519.5.2.1.6279.6001.179049373636438705059720603192
+Radiograph source series (both images):
+https://services.cancerimagingarchive.net/nbia-api/services/v1/getImage?SeriesInstanceUID=1.3.6.1.4.1.14519.5.2.1.6279.6001.210618824080932755350370549788
+
+TCIA Vestibular-Schwannoma-MC-RC MRI dataset citation
+==================================================
+
+Kujawa, A., Dorent, R., Wijethilake, N., Connor, S., Thomson, S., Ivory, M.,
+Bradford, R., Kitchen, N., Bisdas, S., Ourselin, S., Vercauteren, T.,
+Shapey, J. (2023). Segmentation of Vestibular Schwannoma from Magnetic
+Resonance Imaging: An Annotated Multi-Center Routine Clinical Dataset
+(Vestibular-Schwannoma-MC-RC) (Version 2) [dataset].
+The Cancer Imaging Archive. https://doi.org/10.7937/hrzh-2n82
+
+Source: https://www.cancerimagingarchive.net/collection/vestibular-schwannoma-mc-rc/
+License: https://creativecommons.org/licenses/by/4.0/
+Usage policy: https://www.cancerimagingarchive.net/data-usage-policies-and-restrictions/
+
+T1 postcontrast source series (all 20 images):
+https://services.cancerimagingarchive.net/nbia-api/services/v1/getImage?SeriesInstanceUID=1.3.6.1.4.1.14519.5.2.1.280643470889151680198918783960426317845
+T2 source series (instances 4-33 of 36):
+https://services.cancerimagingarchive.net/nbia-api/services/v1/getImage?SeriesInstanceUID=1.3.6.1.4.1.14519.5.2.1.128150792602121155944864564064888680284
+
+The source author-supplied MRI images are defaced. Demo preparation changes
+name, birth date, age and comments, not pixels. These are limited posterior-
+fossa/IAM sequences, not whole-brain coverage or a complete examination.
+Retain attribution, license, modifications and policy link on redistribution,
+and require downstream users to do likewise. No endorsement is implied.

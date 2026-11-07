@@ -74,3 +74,8 @@ pub static ROTATE: Icon = Icon {
     view: 24.0,
     body: r#"<path d="M20 5v5h-5M20 10a8 8 0 1 0-1 7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
 };
+pub static FLIP_HORIZONTAL: Icon = Icon {
+    name: "flip-horizontal",
+    view: 24.0,
+    body: r#"<path d="M12 3v3M12 10v4M12 18v3M3 6v12l6-6ZM21 6v12l-6-6Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>"#,
+};

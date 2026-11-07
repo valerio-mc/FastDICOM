@@ -89,6 +89,99 @@ fn two_gpu_images_have_independent_auto_uniforms_and_resident_uploads() {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn horizontal_flip_mirrors_displayed_pixels_after_every_quarter_turn_without_uploads() {
+    use rune::compose::{Compositor, Frame};
+    use rune::render::{Gpu, Offscreen, Renderer};
+    use rune::{Cx, El, Env, Runtime, el};
+    use std::sync::Arc;
+
+    fn view(_: &crate::State, _: &mut Cx<crate::State>) -> El {
+        el().size(128.0, 64.0)
+            .fill(rune::Color::BLACK)
+            .child(el().absolute(0.0, 0.0).size(64.0, 64.0).effect(1))
+            .child(el().absolute(64.0, 0.0).size(64.0, 64.0).effect(2))
+    }
+    let frame = Arc::new(crate::dicom::Frame {
+        width: 2,
+        height: 2,
+        values: vec![0.0, 85.0, 170.0, 255.0],
+        window: 256.0,
+        level: 128.0,
+        supplied_window: true,
+        contrast_samples: vec![],
+        inverted: false,
+        pixel_aspect: 1.0,
+    });
+    let mut state = crate::State::default();
+    for pane in &mut state.panes {
+        pane.frame = Some(frame.clone());
+        pane.window = 256.0;
+        pane.level = 128.0;
+    }
+    let gpu = Gpu::new(Gpu::instance(), None);
+    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    let target = Offscreen::with_format(&gpu.device, 128, 64, format);
+    let mut ui = Renderer::new(&gpu.device, format);
+    let mut rt = Runtime::new(state, view, (128.0, 64.0), Env::new(true, 1.0));
+    rt.track_marks = true;
+    let mut compositor = super::ImagingCompositor::default();
+    for (turns, corners) in [
+        [0, 85, 170, 255],
+        [170, 0, 255, 85],
+        [255, 170, 85, 0],
+        [85, 255, 0, 170],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for flipped in [false, true] {
+            rt.update(|s, _| {
+                s.panes[0].rotation = turns as f32 * std::f32::consts::FRAC_PI_2;
+                s.panes[0].horizontal_flip = flipped;
+            });
+            rt.frame(0.0);
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            compositor.render(&mut Frame {
+                device: &gpu.device,
+                queue: &gpu.queue,
+                encoder: &mut encoder,
+                target: &target.view,
+                format,
+                size: (128, 64),
+                dt: 0.0,
+                update_ms: 0.0,
+                rt: &mut rt,
+                ui: &mut ui,
+            });
+            target.copy(&mut encoder);
+            ui.submit(&gpu.queue, encoder);
+            let image = target.read(&gpu.device);
+            let expected = if flipped {
+                [corners[1], corners[0], corners[3], corners[2]]
+            } else {
+                corners
+            };
+            for (pane, expected) in [(0, expected), (1, [0, 85, 170, 255])] {
+                for ((x, y), value) in [(8, 8), (56, 8), (8, 56), (56, 56)]
+                    .into_iter()
+                    .zip(expected)
+                {
+                    let pixel = &image[(y * 128 + pane * 64 + x) * 4..][..4];
+                    assert!(
+                        (i32::from(pixel[0]) - value).abs() <= 1,
+                        "pane={pane}, turns={turns}, flipped={flipped}: {pixel:?} vs {value}"
+                    );
+                    assert_eq!(pixel[3], 255);
+                }
+            }
+            assert_eq!(compositor.gpu.as_ref().unwrap().uploads, [1, 1]);
+            assert!(Arc::ptr_eq(rt.state.frame.as_ref().unwrap(), &frame));
+        }
+    }
+}
+
 /// Exercise the real compositor's no-image path, not just rune-fx in isolation. Frost must
 /// sample the already-painted black/white boundary, and must not make the window translucent.
 #[cfg(target_os = "macos")]

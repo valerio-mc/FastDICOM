@@ -50,6 +50,56 @@ fn exposed_text(rt: &rune::Runtime<State>) -> String {
 }
 
 #[test]
+fn horizontal_flip_control_is_pane_local_reversible_and_resets_without_decoding() {
+    let mut state = imported_study();
+    state.split = true;
+    state.panes[1] = crate::Pane {
+        selected: Some(0),
+        frame: state.frame.clone(),
+        ..crate::Pane::default()
+    };
+    let frame = state.frame.clone().unwrap();
+    let mut rt = runtime(state, (1000.0, 680.0));
+    rt.frame(0.0);
+    let flip = rt.presented("flip-horizontal").unwrap().0;
+    let rotate = rt.presented("rotate").unwrap().0;
+    assert_eq!(flip[2..], [34.0, 34.0]);
+    assert_eq!(rotate[0] - (flip[0] + flip[2]), 3.0);
+    let control = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("flip-horizontal"))
+        .unwrap();
+    assert_eq!(control.label.as_deref(), Some("Flip horizontally"));
+    assert!(control.focusable);
+    click(&mut rt, "pane-1");
+    let window_revision = rt.state.window_revision;
+    for expected in [true, false, true] {
+        click(&mut rt, "flip-horizontal");
+        assert_eq!(rt.state.panes[1].horizontal_flip, expected);
+        assert!(!rt.state.panes[0].horizontal_flip);
+        assert!(!rt.state.render.is_pending());
+        assert_eq!(rt.state.window_revision, window_revision);
+        assert!(Arc::ptr_eq(rt.state.frame.as_ref().unwrap(), &frame));
+    }
+    for reset_control in ["fit", "reset"] {
+        click(&mut rt, "rotate");
+        click(&mut rt, reset_control);
+        assert!(!rt.state.horizontal_flip);
+        assert_eq!(rt.state.rotation, 0.0);
+        click(&mut rt, "flip-horizontal");
+    }
+    // Closing the split retains the active pane's entire presentation.
+    click(&mut rt, "toggle-split");
+    assert!(rt.state.horizontal_flip);
+    assert!(!rt.state.panes[1].horizontal_flip);
+    rt.update(|s, _| s.error = Some("unavailable".into()));
+    rt.frame(0.0);
+    click(&mut rt, "flip-horizontal");
+    assert!(rt.state.horizontal_flip, "disabled control must not toggle");
+}
+
+#[test]
 fn startup_prompt_is_centered_without_empty_sidebar_or_image_tools() {
     for (width, height) in [(1000.0, 680.0), (1600.0, 1000.0)] {
         let mut rt = runtime(State::default(), (width, height));
@@ -68,12 +118,67 @@ fn startup_prompt_is_centered_without_empty_sidebar_or_image_tools() {
         }
         let group_center = (heading[1] + actions[1] + actions[3]) * 0.5;
         assert!((group_center - (40.0 + (height - 40.0) * 0.5)).abs() < 0.1);
+        let demo = rt
+            .elements()
+            .into_iter()
+            .find(|element| element.key.as_deref() == Some("try-demo"))
+            .unwrap();
+        assert_eq!(demo.label.as_deref(), Some("Demo"));
         click(&mut rt, "try-demo");
-        assert!(rt.find("sidebar").is_some());
+        // Demo uses the real import pipeline, not a procedural frame request.
+        assert!(rt.state.series.is_empty());
+        assert!(rt.state.frame.is_none());
+        assert!(!rt.state.render.is_pending());
+        assert!(rt.find("synthetic-series").is_none());
         assert!(rt.find("tool-dock").is_none());
-        // The demo requests its image asynchronously; simulate its completed frame.
-        rt.update(|s, _| s.frame = Some(Arc::new(crate::synthetic_frame(80))));
+        // Complete the same scanner/decoder that production polls.
+        rt.poll = Some(crate::poll);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while rt.state.frame.is_none() || rt.state.scan.is_pending() || rt.state.render.is_pending()
+        {
+            rt.frame(0.0);
+            assert!(rt.state.error.is_none(), "{:?}", rt.state.error);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Demo import did not finish"
+            );
+            std::thread::yield_now();
+        }
         rt.frame(0.0);
+        let source =
+            crate::dicom::scan_folder(&std::env::current_dir().unwrap().join("samples")).unwrap();
+        assert!(!source.series.is_empty());
+        let imported: Vec<_> = rt
+            .state
+            .series
+            .iter()
+            .map(|series| (&series.id, &series.files))
+            .collect();
+        let expected: Vec<_> = source
+            .series
+            .iter()
+            .map(|series| (&series.id, &series.files))
+            .collect();
+        assert_eq!(imported, expected);
+        assert_eq!(rt.state.series.len(), 4);
+        assert_eq!(
+            rt.state
+                .series
+                .iter()
+                .map(|series| series.files.len())
+                .sum::<usize>(),
+            102
+        );
+        assert_eq!(
+            rt.state
+                .series
+                .iter()
+                .map(|series| &series.study_uid)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+        assert!(rt.find("sidebar").is_some());
         assert!(rt.find("tool-dock").is_some());
         assert!(rt.find("empty-state").is_none());
     }
@@ -123,18 +228,16 @@ fn privacy_hides_error_paths_without_destroying_the_original_message() {
 
 #[test]
 fn bottom_dock_leaves_metrics_and_canvas_gestures_accessible_at_minimum_size() {
-    let state = State {
-        panes: [
-            crate::Pane {
-                demo: true,
-                frame: Some(Arc::new(crate::synthetic_frame(0))),
-                tool: Tool::Pan,
-                ..crate::Pane::default()
-            },
-            crate::Pane::default(),
-        ],
-        ..State::default()
-    };
+    let mut state = crate::fixtures::cached_study(160);
+    state.panes = [
+        crate::Pane {
+            selected: Some(0),
+            frame: Some(Arc::new(crate::synthetic_frame(0))),
+            tool: Tool::Pan,
+            ..crate::Pane::default()
+        },
+        crate::Pane::default(),
+    ];
     let mut rt = runtime(state, (1000.0, 680.0));
     rt.frame(0.0);
     let (viewport, _) = rt.presented("viewport").unwrap();
@@ -171,10 +274,10 @@ fn header_sidebar_toggle_reflows_canvas_without_changing_the_study() {
     let open = rt.presented("open-folder-header").unwrap().0;
     let identity = rt.presented("app-identity").unwrap().0;
     let privacy = rt.presented("privacy-toggle").unwrap().0;
-    assert!(toggle[0] >= 96.0);
+    assert!(identity[0] >= 96.0);
+    assert!(identity[0] + identity[2] < toggle[0]);
     assert!(toggle[0] + toggle[2] <= open[0]);
-    assert!(open[0] + open[2] <= identity[0]);
-    assert!(identity[0] + identity[2] < privacy[0]);
+    assert!(open[0] + open[2] <= privacy[0]);
     assert!(privacy[1] >= 0.0 && privacy[1] + privacy[3] <= 40.0);
     rt.pointer_down(toggle_x, toggle_y);
     rt.pointer_up(toggle_x, toggle_y);
@@ -406,9 +509,10 @@ fn runtime_pointer_drag_loads_target_then_keys_follow_active_pane_and_privacy_hi
 #[test]
 fn split_gestures_and_shared_controls_do_not_mutate_inactive_presentation() {
     let mut state = imported_study();
+    state.series[0].files.push("PRIVATE-NEXT.dcm".into());
     state.split = true;
     state.panes[1] = crate::Pane {
-        demo: true,
+        selected: Some(0),
         frame: state.frame.clone(),
         ..crate::Pane::default()
     };
