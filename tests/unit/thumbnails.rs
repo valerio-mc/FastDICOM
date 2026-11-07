@@ -30,7 +30,7 @@ fn default_window_and_monochrome1_match_dicom_linear_reference() {
         f.window = window;
         for inverted in [false, true] {
             f.inverted = inverted;
-            let (w, h, rgba) = downsample(&f, 4).unwrap();
+            let (w, h, rgba) = downsample(&f, 4);
             assert_eq!((w, h), (4, 1));
             assert_eq!(rgba, dicom::window_rgba(&f, f.window, f.level, false));
         }
@@ -41,7 +41,7 @@ fn default_window_and_monochrome1_match_dicom_linear_reference() {
 fn physical_aspect_and_budget_bound_output_not_source_rgba() {
     let mut f = frame();
     f.pixel_aspect = 8.0;
-    let (w, h, rgba) = downsample(&f, 96).unwrap();
+    let (w, h, rgba) = downsample(&f, 96);
     assert_eq!((w, h), (48, 96));
     assert_eq!(rgba.len(), 48 * 96 * 4);
     for count in [1, 100, 1_000, 100_000] {
@@ -49,7 +49,7 @@ fn physical_aspect_and_budget_bound_output_not_source_rgba() {
         assert!(edge <= 96);
         assert!(count * edge * edge * 4 <= RGBA_BUDGET);
     }
-    let (_, _, rgba) = downsample(&f, 1).unwrap();
+    let (_, _, rgba) = downsample(&f, 1);
     assert_eq!(rgba.len(), 4);
 }
 

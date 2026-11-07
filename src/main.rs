@@ -345,11 +345,7 @@ impl State {
         if let Some(thumbnails) = &mut self.thumbnails {
             thumbnails.clear();
         }
-        self.frame = None;
         self.series.clear();
-        self.selected = None;
-        self.demo = false;
-        self.error = None;
         self.skipped_files = 0;
         self.cache = Arc::new(Mutex::new(FrameCache::default()));
         self.scan.request(path, |p| dicom::scan_folder(&p));
@@ -497,8 +493,6 @@ impl State {
         self.clear_pane(self.active);
         self.demo = true;
         self.index = 80;
-        self.reset_geometry();
-        self.invert = false;
         self.request_image(true);
     }
 }

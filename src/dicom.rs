@@ -71,7 +71,7 @@ pub struct Frame {
     pub supplied_window: bool,
     /// At most 8192 evenly distributed valid samples, excluding declared stored-domain padding.
     pub contrast_samples: Vec<f32>,
-    /// True for MONOCHROME1. `window_rgba` applies this automatically.
+    /// True for MONOCHROME1; combined with the user's inversion toggle for display.
     pub inverted: bool,
 }
 
@@ -786,10 +786,6 @@ pub fn decode(path: &Path) -> Result<Frame, String> {
     })
 }
 
-fn sample_value(raw: u16, bits: u32, signed: bool, slope: f64, intercept: f64) -> f32 {
-    (f64::from(stored_value(raw, bits, signed)) * slope + intercept) as f32
-}
-
 fn stored_value(raw: u16, bits: u32, signed: bool) -> i32 {
     let mask = (1u32 << bits) - 1;
     let value = u32::from(raw) & mask;
@@ -847,7 +843,7 @@ fn rescaled_samples(
     let values = raw
         .map(|raw| {
             let stored = stored_value(raw, bits, signed);
-            let value = sample_value(raw, bits, signed, slope, intercept);
+            let value = (f64::from(stored) * slope + intercept) as f32;
             if valid(stored) {
                 // Midpoints of equally sized strata in the VALID population, not the first N
                 // pixels or a stride which could repeatedly hit a padding border.

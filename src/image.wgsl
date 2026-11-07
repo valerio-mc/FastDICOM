@@ -3,7 +3,7 @@ struct Uniforms {
     rect: vec4<f32>,
     viewport: vec4<f32>, // layer origin, target size
     image: vec4<f32>, // image size, window, level
-    options: vec4<f32>, // inversion, sRGB blending, bilinear input, clockwise rotation in radians
+    options: vec4<f32>, // inversion, sRGB blending, reserved, clockwise rotation in radians
     clip: vec4<f32>,
     fade: vec4<u32>,
     slot: vec4<f32>,
@@ -34,7 +34,6 @@ fn load(p: vec2<i32>) -> f32 {
     return textureLoad(image, clamp(p, vec2<i32>(0), vec2<i32>(u.image.xy) - vec2<i32>(1)), 0).r;
 }
 fn scalar(uv: vec2<f32>) -> f32 {
-    if u.options.z < 0.5 { return load(vec2<i32>(floor(uv * u.image.xy))); }
     let p = uv * u.image.xy - vec2(0.5);
     let base = vec2<i32>(floor(p));
     let f = fract(p);

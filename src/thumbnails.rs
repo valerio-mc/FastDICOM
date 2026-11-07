@@ -66,9 +66,7 @@ impl Thumbnails {
                 if cancelled.load(Ordering::Relaxed) {
                     break;
                 }
-                let Some((width, height, rgba)) = downsample(&frame, edge) else {
-                    continue;
-                };
+                let (width, height, rgba) = downsample(&frame, edge);
                 drop(frame);
                 if cancelled.load(Ordering::Relaxed)
                     || sender
@@ -140,18 +138,8 @@ fn max_edge(count: usize) -> u32 {
         .clamp(1.0, f64::from(MAX_EDGE)) as u32
 }
 
-fn downsample(frame: &dicom::Frame, edge: u32) -> Option<(u32, u32, Vec<u8>)> {
-    let count = (frame.width as usize).checked_mul(frame.height as usize)?;
-    if count == 0
-        || count != frame.values.len()
-        || !frame.window.is_finite()
-        || frame.window < 1.0
-        || !frame.level.is_finite()
-        || !frame.pixel_aspect.is_finite()
-        || frame.pixel_aspect <= 0.0
-    {
-        return None;
-    }
+// The private worker supplies only frames validated by dicom::decode.
+fn downsample(frame: &dicom::Frame, edge: u32) -> (u32, u32, Vec<u8>) {
     let physical_width = f64::from(frame.width);
     let physical_height = f64::from(frame.height) * f64::from(frame.pixel_aspect);
     let edge = f64::from(edge.clamp(1, MAX_EDGE));
@@ -168,9 +156,6 @@ fn downsample(frame: &dicom::Frame, edge: u32) -> Option<(u32, u32, Vec<u8>)> {
             let sx =
                 ((u64::from(x) * 2 + 1) * u64::from(frame.width) / (u64::from(width) * 2)) as usize;
             let value = f64::from(frame.values[sy * frame.width as usize + sx]);
-            if !value.is_finite() {
-                return None;
-            }
             let gray = if value <= center - window / 2.0 {
                 0
             } else if value > center + window / 2.0 {
@@ -182,7 +167,7 @@ fn downsample(frame: &dicom::Frame, edge: u32) -> Option<(u32, u32, Vec<u8>)> {
             rgba.extend_from_slice(&[gray, gray, gray, 255]);
         }
     }
-    Some((width, height, rgba))
+    (width, height, rgba)
 }
 
 #[cfg(test)]

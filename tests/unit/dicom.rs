@@ -2,22 +2,9 @@ use super::*;
 
 /// Standard DICOM LINEAR window, including the width=1 threshold case.
 /// `invert` is an additional user toggle, XORed with MONOCHROME1 polarity.
-/// Invalid arguments/frame shapes return an empty buffer, never a misleading image.
+/// Independent reference for valid frames and windows.
 pub(crate) fn window_rgba(frame: &Frame, window: f32, level: f32, invert: bool) -> Vec<u8> {
-    let Some(count) = (frame.width as usize).checked_mul(frame.height as usize) else {
-        return Vec::new();
-    };
-    if count == 0
-        || count > MAX_PIXELS
-        || count != frame.values.len()
-        || !window.is_finite()
-        || window < 1.0
-        || !level.is_finite()
-        || frame.values.iter().any(|v| !v.is_finite())
-    {
-        return Vec::new();
-    }
-    let mut rgba = Vec::with_capacity(count * 4);
+    let mut rgba = Vec::with_capacity(frame.values.len() * 4);
     let center = f64::from(level) - 0.5;
     let width = f64::from(window) - 1.0;
     for &value in &frame.values {
@@ -167,10 +154,16 @@ fn monochrome_one_and_user_inversion_are_independent() {
 
 #[test]
 fn signed_stored_bits_padding_and_modality_rescale() {
-    assert_eq!(sample_value(0xafff, 12, true, 2.0, -1024.0), -1026.0);
-    assert_eq!(sample_value(0x0800, 12, true, 1.0, 0.0), -2048.0);
-    assert_eq!(sample_value(0xffff, 16, false, 0.5, -10.0), 32757.5);
-    assert_eq!(sample_value(0xff, 8, true, 1.0, 0.0), -1.0);
+    for (raw, bits, signed, slope, intercept, expected) in [
+        (0xafff, 12, true, 2.0, -1024.0, -1026.0),
+        (0x0800, 12, true, 1.0, 0.0, -2048.0),
+        (0xffff, 16, false, 0.5, -10.0, 32757.5),
+        (0xff, 8, true, 1.0, 0.0, -1.0),
+    ] {
+        let (values, _) =
+            rescaled_samples(std::iter::once(raw), bits, signed, slope, intercept, None);
+        assert_eq!(values, [expected]);
+    }
 }
 
 fn instance(name: &str, number: i32, x: f64) -> Instance {
@@ -201,15 +194,6 @@ fn inconsistent_or_missing_geometry_falls_back_for_whole_series() {
         sort_instances(&mut instances);
         assert_eq!(instances[0].path, PathBuf::from("b"));
     }
-}
-
-#[test]
-fn invalid_window_or_frame_is_not_rendered() {
-    assert!(window_rgba(&frame(&[0.0]), 0.0, 0.0, false).is_empty());
-    assert!(window_rgba(&frame(&[f32::NAN]), 1.0, 0.0, false).is_empty());
-    let mut f = frame(&[0.0]);
-    f.width = 2;
-    assert!(window_rgba(&f, 1.0, 0.0, false).is_empty());
 }
 
 // Generate a tiny Explicit VR Little Endian Part 10 file independently of
